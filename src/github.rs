@@ -1,7 +1,7 @@
-use std::cell::OnceCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,6 +15,7 @@ const API: &str = "https://api.github.com";
 const PER_PAGE: usize = 100;
 const MAX_PAGES: u32 = 50;
 const ATTEMPTS: u32 = 3;
+const BACKOFF_MS: u64 = if cfg!(test) { 1 } else { 400 };
 
 type Response = ureq::http::Response<ureq::Body>;
 
@@ -55,9 +56,10 @@ pub struct Repo {
 
 pub struct Client {
     agent: ureq::Agent,
+    api: String,
     token: Option<String>,
     cache: Cache,
-    me: OnceCell<Option<String>>,
+    me: OnceLock<Option<String>>,
 }
 
 impl Client {
@@ -68,10 +70,17 @@ impl Client {
             .build();
         Self {
             agent: config.into(),
+            api: API.to_string(),
             token,
             cache,
-            me: OnceCell::new(),
+            me: OnceLock::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_api(mut self, api: &str) -> Self {
+        self.api = api.to_string();
+        self
     }
 
     pub fn has_token(&self) -> bool {
@@ -124,12 +133,25 @@ impl Client {
         })
     }
 
-    fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let url = format!("{API}{path}");
-        let body = self.fetch(&url, "", path, || {
+    pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        match self.get_ready(path)? {
+            Some(v) => Ok(v),
+            None => bail!("GitHub has no data for {path} yet, try again in a bit"),
+        }
+    }
+
+    /// Like `get`, but None when GitHub answers 202 because it's still
+    /// computing the data (repo stats do this).
+    pub fn get_ready<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
+        let url = format!("{}{path}", self.api);
+        let Some(body) = self.fetch(&url, "", path, || {
             self.with_headers(self.agent.get(&url)).call()
-        })?;
+        })?
+        else {
+            return Ok(None);
+        };
         serde_json::from_str(&body)
+            .map(Some)
             .with_context(|| format!("could not parse the response for {path}"))
     }
 
@@ -137,11 +159,13 @@ impl Client {
         if self.token.is_none() {
             bail!("the GraphQL API needs a token");
         }
-        let url = format!("{API}/graphql");
+        let url = format!("{}/graphql", self.api);
         let payload = serde_json::json!({ "query": query, "variables": vars });
-        let body = self.fetch(&url, &payload.to_string(), "graphql", || {
-            self.with_headers(self.agent.post(&url)).send_json(&payload)
-        })?;
+        let body = self
+            .fetch(&url, &payload.to_string(), "graphql", || {
+                self.with_headers(self.agent.post(&url)).send_json(&payload)
+            })?
+            .context("empty GraphQL response")?;
 
         let mut resp: Value =
             serde_json::from_str(&body).context("could not parse the GraphQL response")?;
@@ -172,11 +196,11 @@ impl Client {
         body: &str,
         what: &str,
         call: impl Fn() -> Result<Response, ureq::Error>,
-    ) -> Result<String> {
+    ) -> Result<Option<String>> {
         let key = self.cache_key(url, body);
         let now = now_secs();
         if let Some(hit) = self.cache.get(&key, now) {
-            return Ok(hit);
+            return Ok(Some(hit));
         }
 
         let mut attempt = 1;
@@ -190,19 +214,29 @@ impl Client {
                 }
                 _ => {}
             }
-            sleep(Duration::from_millis(400 * 2u64.pow(attempt)));
+            sleep(Duration::from_millis(BACKOFF_MS * 2u64.pow(attempt)));
             attempt += 1;
         };
 
         match resp.status().as_u16() {
             200 => {}
+            202 | 204 => return Ok(None),
             401 => bail!("GitHub rejected the token, check GITHUB_TOKEN or run `gh auth login`"),
             403 | 429 if header(&resp, "x-ratelimit-remaining").as_deref() == Some("0") => {
                 let reset = header(&resp, "x-ratelimit-reset").and_then(|v| v.parse().ok());
                 bail!("{}", rate_limit_message(reset, now, self.token.is_some()))
             }
             404 => bail!("not found: {what}"),
-            code => bail!("GitHub returned {code} for {what}"),
+            code => {
+                let body = resp.body_mut().read_to_string().unwrap_or_default();
+                let msg = serde_json::from_str::<Value>(&body)
+                    .ok()
+                    .and_then(|v| v["message"].as_str().map(str::to_string));
+                match msg {
+                    Some(msg) => bail!("GitHub returned {code} for {what}: {msg}"),
+                    None => bail!("GitHub returned {code} for {what}"),
+                }
+            }
         }
 
         let text = resp
@@ -210,7 +244,7 @@ impl Client {
             .read_to_string()
             .with_context(|| format!("could not read the response for {what}"))?;
         self.cache.put(&key, &text, now);
-        Ok(text)
+        Ok(Some(text))
     }
 
     // different tokens can see different repos, so they get separate entries
@@ -344,9 +378,185 @@ mod tests {
 
     #[test]
     fn cache_key_depends_on_token() {
-        let a = Client::new(Some("one".into()), Cache::new(false));
-        let b = Client::new(Some("two".into()), Cache::new(false));
+        let a = Client::new(Some("one".into()), Cache::off());
+        let b = Client::new(Some("two".into()), Cache::off());
         assert_ne!(a.cache_key("u", ""), b.cache_key("u", ""));
         assert!(!a.cache_key("u", "").contains("one"));
+    }
+
+    mod fake {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        pub struct Reply {
+            pub status: u16,
+            pub headers: Vec<(&'static str, String)>,
+            pub body: String,
+        }
+
+        pub fn reply(status: u16, body: &str) -> Reply {
+            Reply {
+                status,
+                headers: Vec::new(),
+                body: body.to_string(),
+            }
+        }
+
+        /// A tiny HTTP server that answers each request with the next reply
+        /// and remembers the request lines.
+        pub fn serve(replies: Vec<Reply>) -> (String, Arc<Mutex<Vec<String>>>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let hits = Arc::new(Mutex::new(Vec::new()));
+            let log = Arc::clone(&hits);
+            thread::spawn(move || {
+                for reply in replies {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        return;
+                    };
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut first = String::new();
+                    reader.read_line(&mut first).unwrap();
+                    let mut len = 0;
+                    loop {
+                        let mut line = String::new();
+                        reader.read_line(&mut line).unwrap();
+                        if line.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            len = v.trim().parse().unwrap();
+                        }
+                    }
+                    let mut body = vec![0; len];
+                    reader.read_exact(&mut body).unwrap();
+                    log.lock().unwrap().push(first.trim().to_string());
+
+                    let mut resp = format!(
+                        "HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n",
+                        reply.status,
+                        reply.body.len()
+                    );
+                    for (k, v) in &reply.headers {
+                        resp += &format!("{k}: {v}\r\n");
+                    }
+                    resp += "\r\n";
+                    resp += &reply.body;
+                    stream.write_all(resp.as_bytes()).unwrap();
+                }
+            });
+            (url, hits)
+        }
+    }
+
+    use fake::{Reply, reply, serve};
+
+    const USER: &str = r#"{"login":"someone","name":null,"type":"User","html_url":"x","public_repos":1,"followers":2,"following":3,"created_at":"2020-01-01T00:00:00Z"}"#;
+
+    fn client(url: &str, token: bool) -> Client {
+        Client::new(token.then(|| "t".to_string()), Cache::off()).with_api(url)
+    }
+
+    fn repo_json(name: &str) -> String {
+        format!(
+            r#"{{"name":"{name}","html_url":"x","description":null,"language":"Rust","stargazers_count":1,"forks_count":0,"fork":false,"archived":false,"created_at":"2024-01-01T00:00:00Z","pushed_at":null}}"#
+        )
+    }
+
+    #[test]
+    fn retries_server_errors() {
+        let (url, hits) = serve(vec![reply(502, ""), reply(503, ""), reply(200, USER)]);
+        let user = client(&url, false).user("someone").unwrap();
+        assert_eq!(user.followers, 2);
+        assert_eq!(hits.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn gives_up_after_three_tries() {
+        let (url, _) = serve(vec![reply(500, ""), reply(500, ""), reply(500, "")]);
+        let err = client(&url, false).user("someone").unwrap_err();
+        assert!(err.to_string().contains("GitHub returned 500"), "{err}");
+    }
+
+    #[test]
+    fn rate_limit_says_when_it_resets() {
+        let reset = now_secs() + 120;
+        let (url, _) = serve(vec![Reply {
+            status: 403,
+            headers: vec![
+                ("x-ratelimit-remaining", "0".into()),
+                ("x-ratelimit-reset", reset.to_string()),
+            ],
+            body: r#"{"message":"API rate limit exceeded"}"#.into(),
+        }]);
+        let err = client(&url, false).user("someone").unwrap_err().to_string();
+        assert!(err.contains("resets in 2 min"), "{err}");
+        assert!(err.contains("gh auth login"), "{err}");
+    }
+
+    #[test]
+    fn unknown_user() {
+        let (url, _) = serve(vec![reply(404, r#"{"message":"Not Found"}"#)]);
+        let err = client(&url, false).user("nobody").unwrap_err();
+        assert_eq!(err.to_string(), "no GitHub user or org called 'nobody'");
+    }
+
+    #[test]
+    fn other_errors_show_githubs_message() {
+        let (url, _) = serve(vec![reply(403, r#"{"message":"history is too large"}"#)]);
+        let err = client(&url, false).user("someone").unwrap_err().to_string();
+        assert!(
+            err.contains("403") && err.contains("history is too large"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn follows_pages() {
+        let full: Vec<String> = (0..PER_PAGE).map(|i| repo_json(&format!("r{i}"))).collect();
+        let (url, hits) = serve(vec![
+            reply(200, &format!("[{}]", full.join(","))),
+            reply(200, &format!("[{}]", repo_json("last"))),
+        ]);
+        let user: User = serde_json::from_str(USER).unwrap();
+        let repos = client(&url, false).repos(&user, false).unwrap();
+        assert_eq!(repos.len(), PER_PAGE + 1);
+        let hits = hits.lock().unwrap();
+        assert!(
+            hits[0].contains("page=1") && hits[1].contains("page=2"),
+            "{hits:?}"
+        );
+    }
+
+    #[test]
+    fn graphql_errors() {
+        let (url, _) = serve(vec![reply(
+            200,
+            r#"{"data":null,"errors":[{"message":"Could not resolve to a User"}]}"#,
+        )]);
+        let err = client(&url, true)
+            .graphql("query { x }", serde_json::json!({}))
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "GraphQL error: Could not resolve to a User"
+        );
+    }
+
+    #[test]
+    fn graphql_needs_a_token() {
+        let err = client("http://127.0.0.1:9", false)
+            .graphql("query { x }", serde_json::json!({}))
+            .unwrap_err();
+        assert!(err.to_string().contains("needs a token"));
+    }
+
+    #[test]
+    fn still_computing() {
+        let (url, _) = serve(vec![reply(202, "{}")]);
+        let res: Option<Value> = client(&url, false).get_ready("/repos/a/b/stats").unwrap();
+        assert!(res.is_none());
     }
 }

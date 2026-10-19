@@ -3,8 +3,10 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 const TTL_SECS: u64 = 10 * 60;
+const KEEP_SECS: u64 = 24 * 60 * 60;
 
 pub struct Cache {
     dir: Option<PathBuf>,
@@ -13,9 +15,38 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(read: bool) -> Self {
-        Self {
+        let cache = Self {
             dir: cache_dir(),
             read,
+        };
+        cache.prune(SystemTime::now());
+        cache
+    }
+
+    #[cfg(test)]
+    pub fn off() -> Self {
+        Self {
+            dir: None,
+            read: false,
+        }
+    }
+
+    /// Deletes entries older than a day so the folder doesn't keep growing.
+    fn prune(&self, now: SystemTime) {
+        let Some(entries) = self.dir.as_ref().and_then(|d| fs::read_dir(d).ok()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let old = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|m| now.duration_since(m).ok())
+                .is_some_and(|age| age.as_secs() > KEEP_SECS);
+            if old && path.extension().is_some_and(|e| e == "json") {
+                let _ = fs::remove_file(path);
+            }
         }
     }
 
@@ -78,6 +109,7 @@ fn open_private(path: &Path) -> io::Result<fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn temp_cache(name: &str) -> Cache {
         let dir = std::env::temp_dir().join(format!("gh-stats-test-{name}-{}", std::process::id()));
@@ -109,6 +141,25 @@ mod tests {
         assert_eq!(c.get("k", 1), None);
         c.read = true;
         assert_eq!(c.get("k", 1).as_deref(), Some("v"));
+    }
+
+    #[test]
+    fn prune_removes_old_entries_only() {
+        let c = temp_cache("prune");
+        c.put("fresh", "v", 1);
+        c.put("old", "v", 1);
+        let dir = c.dir.clone().unwrap();
+        std::fs::write(dir.join("notes.txt"), "keep").unwrap();
+
+        // pretend two days passed for everything
+        let later = SystemTime::now() + Duration::from_secs(2 * KEEP_SECS);
+        c.prune(later);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        assert!(dir.join("notes.txt").exists());
+
+        c.put("again", "v", 1);
+        c.prune(SystemTime::now());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
     }
 
     #[test]

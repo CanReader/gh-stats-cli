@@ -5,16 +5,7 @@ use crate::graphql::{Contributions, Day};
 use crate::render::{num, plural};
 use crate::stats::{Streaks, days};
 
-// GitHub's dark greens, the empty one a bit lighter so it shows on black
-const LEVELS: [(u8, u8, u8); 5] = [
-    (0x2D, 0x33, 0x3B),
-    (0x0E, 0x44, 0x29),
-    (0x00, 0x6D, 0x32),
-    (0x26, 0xA6, 0x41),
-    (0x39, 0xD3, 0x53),
-];
 const PLAIN: [char; 5] = ['·', '░', '▒', '▓', '█'];
-const GREEN: (u8, u8, u8) = (0x39, 0xD3, 0x53);
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -30,19 +21,27 @@ pub fn render(
     writeln!(out, "\n  {}", p.bold("Contributions"))?;
     writeln!(
         out,
-        "  {} in the last year   {}   {}   {}   {}",
-        p.bold(&p.fg(GREEN, &num(c.total))),
+        "  {} in {}   {}   {}   {}   {}",
+        p.bold(&p.fg(p.theme.green, &num(c.total))),
+        period(c),
         count(p, c.commits, "commit"),
         count(p, c.pull_requests, "pull request"),
         count(p, c.issues, "issue"),
         count(p, c.reviews, "review"),
     )?;
 
-    let mut line = format!(
-        "current streak {}   longest {}",
-        p.bold(&plural(s.current as usize, "day")),
-        p.bold(&plural(s.longest as usize, "day")),
-    );
+    // a current streak only makes sense when looking at the last 12 months
+    let mut line = match c.year {
+        None => format!(
+            "current streak {}   longest {}",
+            p.bold(&plural(s.current as usize, "day")),
+            p.bold(&plural(s.longest as usize, "day")),
+        ),
+        Some(_) => format!(
+            "longest streak {}",
+            p.bold(&plural(s.longest as usize, "day"))
+        ),
+    };
     if let Some((date, n)) = &s.best_day {
         line += &format!("   best day {} on {}", p.bold(&num(*n)), short_date(date));
     }
@@ -83,6 +82,11 @@ pub fn render(
     writeln!(out, "{}{legend}", " ".repeat(pad))
 }
 
+pub fn period(c: &Contributions) -> String {
+    c.year
+        .map_or_else(|| "the last year".to_string(), |y| y.to_string())
+}
+
 fn count(p: Palette, n: u32, word: &str) -> String {
     let text = plural(n as usize, word);
     match text.split_once(' ') {
@@ -93,9 +97,10 @@ fn count(p: Palette, n: u32, word: &str) -> String {
 
 fn cell(p: Palette, level: u8) -> String {
     let level = level.min(4) as usize;
-    match p {
-        Palette::None => PLAIN[level].to_string(),
-        _ => p.fg(LEVELS[level], "■"),
+    if p.is_plain() {
+        PLAIN[level].to_string()
+    } else {
+        p.fg(p.theme.cells[level], "■")
     }
 }
 
@@ -200,6 +205,7 @@ mod tests {
             issues: 4,
             reviews: 0,
             private: 3,
+            year: None,
             days: list,
         }
     }
@@ -280,6 +286,18 @@ mod tests {
     }
 
     #[test]
+    fn past_year_header() {
+        let mut c = sample();
+        c.year = Some(2024);
+        let s = crate::stats::streaks(&c.days);
+        let mut out = String::new();
+        render(&mut out, &c, &s, Palette::plain(), 80).unwrap();
+        assert!(out.contains("70 in 2024"));
+        assert!(out.contains("longest streak"));
+        assert!(!out.contains("current streak"));
+    }
+
+    #[test]
     fn dates() {
         assert_eq!(short_date("2026-03-04"), "Mar 4");
         assert_eq!(short_date("nope"), "nope");
@@ -290,7 +308,7 @@ mod tests {
         let c = sample();
         let s = crate::stats::streaks(&c.days);
         let mut out = String::new();
-        render(&mut out, &c, &s, Palette::None, 80).unwrap();
+        render(&mut out, &c, &s, Palette::plain(), 80).unwrap();
         assert!(
             out.contains(
                 "70 in the last year   50 commits   1 pull request   4 issues   0 reviews"

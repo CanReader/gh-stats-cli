@@ -5,9 +5,9 @@ use serde_json::json;
 use crate::github::Client;
 
 const CONTRIBUTIONS: &str = r#"
-query($login: String!) {
+query($login: String!, $from: DateTime, $to: DateTime) {
   user(login: $login) {
-    contributionsCollection {
+    contributionsCollection(from: $from, to: $to) {
       totalCommitContributions
       totalPullRequestContributions
       totalIssueContributions
@@ -51,6 +51,8 @@ pub struct Contributions {
     pub issues: u32,
     pub reviews: u32,
     pub private: u32,
+    /// None means the last 12 months
+    pub year: Option<i32>,
     pub days: Vec<Day>,
 }
 
@@ -99,8 +101,19 @@ struct RawDay {
     contribution_level: String,
 }
 
-pub fn contributions(client: &Client, login: &str) -> Result<Contributions> {
-    let data = client.graphql(CONTRIBUTIONS, json!({ "login": login }))?;
+pub fn contributions(client: &Client, login: &str, year: Option<i32>) -> Result<Contributions> {
+    let range = year.map(|y| {
+        (
+            format!("{y}-01-01T00:00:00Z"),
+            format!("{y}-12-31T23:59:59Z"),
+        )
+    });
+    let vars = json!({
+        "login": login,
+        "from": range.as_ref().map(|r| &r.0),
+        "to": range.as_ref().map(|r| &r.1),
+    });
+    let data = client.graphql(CONTRIBUTIONS, vars)?;
     let raw: RawCollection =
         serde_json::from_value(data["user"]["contributionsCollection"].clone())
             .context("unexpected shape for contributions")?;
@@ -124,6 +137,7 @@ pub fn contributions(client: &Client, login: &str) -> Result<Contributions> {
         issues: raw.total_issue_contributions,
         reviews: raw.total_pull_request_review_contributions,
         private: raw.restricted_contributions_count,
+        year,
         days,
     })
 }

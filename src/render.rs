@@ -5,9 +5,6 @@ use crate::colors::{self, Palette};
 use crate::heatmap;
 use crate::stats::Language;
 
-const ACCENT: (u8, u8, u8) = (0x58, 0xA6, 0xFF);
-const STAR: (u8, u8, u8) = (0xE3, 0xB3, 0x41);
-const GREEN: (u8, u8, u8) = (0x3F, 0xB9, 0x50);
 const MAX_LANGUAGES: usize = 8;
 const BAR_CELLS: usize = 24;
 
@@ -32,7 +29,7 @@ pub fn compare(reports: &[Report], p: Palette) -> String {
 fn write_text(out: &mut String, r: &Report, p: Palette, width: usize) -> fmt::Result {
     let (user, stats) = (&r.user, &r.stats);
 
-    write!(out, "  {}", p.bold(&p.fg(ACCENT, &user.login)))?;
+    write!(out, "  {}", p.bold(&p.fg(p.theme.accent, &user.login)))?;
     if let Some(name) = user.name.as_deref().filter(|n| !n.is_empty()) {
         write!(out, "  {name}")?;
     }
@@ -53,7 +50,7 @@ fn write_text(out: &mut String, r: &Report, p: Palette, width: usize) -> fmt::Re
         out,
         "  {} repos   {} stars   forked {}",
         p.bold(&num(stats.total as u32)),
-        p.bold(&p.fg(STAR, &num(stats.stars))),
+        p.bold(&p.fg(p.theme.star, &num(stats.stars))),
         p.bold(&plural(stats.forks as usize, "time")),
     )?;
     if stats.archived > 0 {
@@ -113,7 +110,7 @@ fn write_text(out: &mut String, r: &Report, p: Palette, width: usize) -> fmt::Re
     Ok(())
 }
 
-fn write_languages(out: &mut String, langs: &[Language], p: Palette) -> fmt::Result {
+pub(crate) fn write_languages(out: &mut String, langs: &[Language], p: Palette) -> fmt::Result {
     let by_size = langs[0].bytes.is_some();
     let title = if by_size {
         "by code size"
@@ -173,7 +170,7 @@ fn write_top(out: &mut String, r: &Report, p: Palette, width: usize) -> fmt::Res
         let lang = repo.language.as_deref().unwrap_or("-");
         let mut line = format!(
             "  {} {:>star_w$}  {:<name_w$}  {}",
-            p.fg(STAR, "★"),
+            p.fg(p.theme.star, "★"),
             num(repo.stargazers_count),
             repo.name,
             p.fg(colors::language(lang), &format!("{lang:<lang_w$}")),
@@ -211,8 +208,9 @@ fn write_markdown(out: &mut String, r: &Report) -> fmt::Result {
     if let (Some(c), Some(s)) = (&r.contributions, &r.streaks) {
         writeln!(
             out,
-            "**{}** contributions in the last year · longest streak **{}**\n",
+            "**{}** contributions in {} · longest streak **{}**\n",
             num(c.total),
+            heatmap::period(c),
             plural(s.longest as usize, "day")
         )?;
     }
@@ -325,7 +323,7 @@ fn write_compare(out: &mut String, reports: &[Report], p: Palette) -> fmt::Resul
     write!(out, "  {:label_w$}", "")?;
     for (r, w) in reports.iter().zip(&col_w) {
         let name = format!("{:>w$}", r.user.login);
-        write!(out, "{}", p.bold(&p.fg(ACCENT, &name)))?;
+        write!(out, "{}", p.bold(&p.fg(p.theme.accent, &name)))?;
     }
     writeln!(out)?;
 
@@ -338,7 +336,7 @@ fn write_compare(out: &mut String, reports: &[Report], p: Palette) -> fmt::Resul
             let wins =
                 row.highlight && !tied && best.is_some_and(|b| b > 0) && row.values[i] == best;
             if wins {
-                write!(out, "{}", p.bold(&p.fg(GREEN, &cell)))?;
+                write!(out, "{}", p.bold(&p.fg(p.theme.green, &cell)))?;
             } else {
                 write!(out, "{cell}")?;
             }
@@ -348,7 +346,7 @@ fn write_compare(out: &mut String, reports: &[Report], p: Palette) -> fmt::Resul
     Ok(())
 }
 
-fn bar(ratio: f64, cells: usize) -> String {
+pub(crate) fn bar(ratio: f64, cells: usize) -> String {
     const PARTS: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
     if ratio.is_nan() || ratio <= 0.0 {
         return String::new();
@@ -362,7 +360,7 @@ fn bar(ratio: f64, cells: usize) -> String {
     s
 }
 
-fn size(bytes: u64) -> String {
+pub(crate) fn size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;
@@ -377,7 +375,7 @@ fn size(bytes: u64) -> String {
     }
 }
 
-fn date(iso: &Option<String>) -> &str {
+pub(crate) fn date(iso: &Option<String>) -> &str {
     iso.as_deref().and_then(|d| d.get(..10)).unwrap_or("?")
 }
 
@@ -402,7 +400,7 @@ pub fn num(n: u32) -> String {
 }
 
 // GitHub shows :crab: as an emoji, a terminal can't
-fn strip_shortcodes(s: &str) -> String {
+pub(crate) fn strip_shortcodes(s: &str) -> String {
     let is_shortcode = |w: &str| {
         w.strip_prefix(':')
             .and_then(|w| w.strip_suffix(':'))
@@ -419,7 +417,7 @@ fn strip_shortcodes(s: &str) -> String {
         .join(" ")
 }
 
-fn truncate(s: &str, max: usize) -> String {
+pub(crate) fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
@@ -429,7 +427,7 @@ fn truncate(s: &str, max: usize) -> String {
     t
 }
 
-fn md_cell(s: &str) -> String {
+pub(crate) fn md_cell(s: &str) -> String {
     s.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
@@ -464,6 +462,7 @@ mod tests {
             issues: 3,
             reviews: 2,
             private: 0,
+            year: None,
             days: vec![day("2026-10-03", 2), day("2026-10-04", 5)],
         });
         Report {
@@ -528,7 +527,7 @@ mod tests {
 
     #[test]
     fn plain_text_report() {
-        let out = text(&report(&sample(), false), Palette::None, 80);
+        let out = text(&report(&sample(), false), Palette::plain(), 80);
         assert!(!out.contains('\x1b'));
         assert!(out.contains("someone  Some One"));
         assert!(out.contains("user since 2019, 12 followers, 3 following"));
@@ -547,7 +546,7 @@ mod tests {
 
     #[test]
     fn report_with_contributions() {
-        let out = text(&report(&sample(), true), Palette::None, 80);
+        let out = text(&report(&sample(), true), Palette::plain(), 80);
         assert!(out.contains("40 in the last year   30 commits"));
         assert!(out.contains("current streak 2 days"));
         assert!(!out.contains("gh auth login"));
@@ -555,13 +554,17 @@ mod tests {
 
     #[test]
     fn narrow_terminal_drops_descriptions() {
-        let out = text(&report(&sample(), false), Palette::None, 20);
+        let out = text(&report(&sample(), false), Palette::plain(), 20);
         assert!(!out.contains("Small command"));
     }
 
     #[test]
     fn colored_report_has_escape_codes() {
-        let out = text(&report(&sample(), false), Palette::TrueColor, 80);
+        let out = text(
+            &report(&sample(), false),
+            Palette::truecolor(colors::DARK),
+            80,
+        );
         assert!(out.contains("\x1b[38;2;"));
     }
 
@@ -585,7 +588,7 @@ mod tests {
         let a = report(&sample(), true);
         let mut b = report(&sample()[..2], false);
         b.user = user("other");
-        let out = compare(&[a, b], Palette::None);
+        let out = compare(&[a, b], Palette::plain());
         let lines: Vec<&str> = out.lines().collect();
         assert!(lines[0].contains("someone") && lines[0].contains("other"));
         let repos = lines.iter().find(|l| l.contains("repos")).unwrap();
@@ -599,7 +602,7 @@ mod tests {
         let a = report(&sample(), true);
         let mut b = report(&sample()[..2], false);
         b.user = user("other");
-        let out = compare(&[a, b], Palette::TrueColor);
+        let out = compare(&[a, b], Palette::truecolor(colors::DARK));
         assert!(out.contains("\x1b[38;2;63;185;80m"));
     }
 }

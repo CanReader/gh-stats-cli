@@ -1,8 +1,8 @@
 [package]
 name = "gh-stats"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
-description = "GitHub stats for any user or org, right in your terminal"
+description = "GitHub stats for any user, org or repo, right in your terminal"
 license = "MIT"
 
 [[bin]]

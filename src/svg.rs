@@ -1,14 +1,41 @@
 use std::fmt::{self, Write};
 
+use crate::colors::{DARK, LIGHT, Rgb};
+
 const CW: f64 = 8.4;
 const LINE_H: f64 = 20.0;
 const FONT_SIZE: f64 = 14.0;
 const PAD: f64 = 24.0;
 const TOP: f64 = 64.0;
-const BG: &str = "#0d1117";
-const BORDER: &str = "#30363d";
-const FG: (u8, u8, u8) = (0xC9, 0xD1, 0xD9);
-const DIM: (u8, u8, u8) = (0x8B, 0x94, 0x9E);
+const SPARK_H: f64 = 28.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Scheme {
+    /// follows the viewer's light or dark mode
+    Auto,
+    Dark,
+    Light,
+}
+
+// colors that change with the theme get a CSS class, everything else (like
+// language colors) is written inline
+fn roles() -> [(&'static str, Rgb, Rgb); 12] {
+    let (d, l) = (DARK, LIGHT);
+    [
+        ("fg", d.fg, l.fg),
+        ("dim", d.dim, l.dim),
+        ("accent", d.accent, l.accent),
+        ("star", d.star, l.star),
+        ("green", d.green, l.green),
+        ("c0", d.cells[0], l.cells[0]),
+        ("c1", d.cells[1], l.cells[1]),
+        ("c2", d.cells[2], l.cells[2]),
+        ("c3", d.cells[3], l.cells[3]),
+        ("c4", d.cells[4], l.cells[4]),
+        ("bg", d.bg, l.bg),
+        ("border", d.border, l.border),
+    ]
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Style {
@@ -18,22 +45,24 @@ struct Style {
 }
 
 impl Style {
-    fn color(self) -> (u8, u8, u8) {
+    fn color(self) -> Rgb {
         match (self.fg, self.dim) {
             (Some(c), _) => c,
-            (None, true) => DIM,
-            (None, false) => FG,
+            (None, true) => DARK.dim,
+            (None, false) => DARK.fg,
         }
     }
 }
 
-pub fn render(ansi: &str, title: &str) -> String {
+/// `ansi` has to be rendered with the dark theme, the light colors are
+/// swapped in here.
+pub fn render(ansi: &str, title: &str, scheme: Scheme) -> String {
     let mut svg = String::new();
-    write_svg(&mut svg, ansi, title).expect("writing to a String can't fail");
+    write_svg(&mut svg, ansi, title, scheme).expect("writing to a String can't fail");
     svg
 }
 
-fn write_svg(svg: &mut String, ansi: &str, title: &str) -> fmt::Result {
+fn write_svg(svg: &mut String, ansi: &str, title: &str, scheme: Scheme) -> fmt::Result {
     let lines: Vec<Vec<(char, Style)>> = ansi.lines().map(parse_line).collect();
     // heatmap rows get the same spacing both ways so the squares sit on a grid
     let heights: Vec<f64> = lines
@@ -41,6 +70,8 @@ fn write_svg(svg: &mut String, ansi: &str, title: &str) -> fmt::Result {
         .map(|l| {
             if l.iter().any(|(c, _)| *c == '■') {
                 CW * 2.0
+            } else if l.iter().any(|(c, _)| spark_height(*c).is_some()) {
+                SPARK_H + 6.0
             } else {
                 LINE_H
             }
@@ -64,9 +95,10 @@ fn write_svg(svg: &mut String, ansi: &str, title: &str) -> fmt::Result {
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">"#
     )?;
+    write_style(svg, scheme)?;
     writeln!(
         svg,
-        r#"<rect x="0.5" y="0.5" width="{}" height="{}" rx="12" fill="{BG}" stroke="{BORDER}"/>"#,
+        r#"<rect class="bg" x="0.5" y="0.5" width="{}" height="{}" rx="12"/>"#,
         width - 1.0,
         height - 1.0
     )?;
@@ -79,8 +111,7 @@ fn write_svg(svg: &mut String, ansi: &str, title: &str) -> fmt::Result {
     )?;
     writeln!(
         svg,
-        r##"<text x="{PAD}" y="48"><tspan fill="#3fb950" font-weight="600">$ </tspan><tspan fill="{}">{}</tspan></text>"##,
-        rgb(FG),
+        r#"<text x="{PAD}" y="48"><tspan class="green" font-weight="600">$ </tspan><tspan class="fg">{}</tspan></text>"#,
         escape(title)
     )?;
 
@@ -111,9 +142,9 @@ impl Run {
         };
         write!(
             out,
-            r#"<tspan x="{:.1}" fill="{}"{weight}>{}</tspan>"#,
+            r#"<tspan x="{:.1}" {}{weight}>{}</tspan>"#,
             PAD + self.start as f64 * CW,
-            rgb(self.style.color()),
+            paint(self.style.color()),
             escape(&self.text)
         )
     }
@@ -128,8 +159,9 @@ fn draw_line(svg: &mut String, line: &[(char, Style)], top: f64, h: f64) -> fmt:
     while col < line.len() {
         let (c, style) = line[col];
         let x = PAD + col as f64 * CW;
-        let fill = rgb(style.color());
-        let is_shape = c == '■' || c == '●' || block_width(c).is_some();
+        let fill = paint(style.color());
+        let is_shape =
+            c == '■' || c == '●' || block_width(c).is_some() || spark_height(c).is_some();
 
         if (is_shape || run.as_ref().is_some_and(|r| r.style != style))
             && let Some(r) = run.take()
@@ -142,7 +174,7 @@ fn draw_line(svg: &mut String, line: &[(char, Style)], top: f64, h: f64) -> fmt:
                 let s = 12.0;
                 writeln!(
                     svg,
-                    r#"<rect x="{:.1}" y="{:.1}" width="{s}" height="{s}" rx="2.5" fill="{fill}"/>"#,
+                    r#"<rect x="{:.1}" y="{:.1}" width="{s}" height="{s}" rx="2.5" {fill}/>"#,
                     x + (CW - s) / 2.0,
                     mid - s / 2.0
                 )?;
@@ -151,8 +183,19 @@ fn draw_line(svg: &mut String, line: &[(char, Style)], top: f64, h: f64) -> fmt:
             '●' => {
                 writeln!(
                     svg,
-                    r#"<circle cx="{:.1}" cy="{mid:.1}" r="4.5" fill="{fill}"/>"#,
+                    r#"<circle cx="{:.1}" cy="{mid:.1}" r="4.5" {fill}/>"#,
                     x + CW / 2.0
+                )?;
+                col += 1;
+            }
+            _ if spark_height(c).is_some() => {
+                let h = spark_height(c).unwrap_or(0.0) * SPARK_H;
+                writeln!(
+                    svg,
+                    r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{h:.1}" rx="1" {fill}/>"#,
+                    x + 1.0,
+                    mid + SPARK_H / 2.0 - h,
+                    CW - 2.0
                 )?;
                 col += 1;
             }
@@ -168,7 +211,7 @@ fn draw_line(svg: &mut String, line: &[(char, Style)], top: f64, h: f64) -> fmt:
                 }
                 writeln!(
                     svg,
-                    r#"<rect x="{x:.1}" y="{:.1}" width="{w:.1}" height="10" rx="3" fill="{fill}"/>"#,
+                    r#"<rect x="{x:.1}" y="{:.1}" width="{w:.1}" height="10" rx="3" {fill}/>"#,
                     mid - 5.0
                 )?;
             }
@@ -196,6 +239,46 @@ fn draw_line(svg: &mut String, line: &[(char, Style)], top: f64, h: f64) -> fmt:
         )?;
     }
     Ok(())
+}
+
+fn write_style(svg: &mut String, scheme: Scheme) -> fmt::Result {
+    let rules = |svg: &mut String, light: bool| -> fmt::Result {
+        for (name, dark, lite) in roles() {
+            let c = rgb(if light { lite } else { dark });
+            match name {
+                "bg" => write!(svg, ".bg{{fill:{c}}}")?,
+                "border" => write!(svg, ".bg{{stroke:{c}}}")?,
+                _ => write!(svg, ".{name}{{fill:{c}}}")?,
+            }
+        }
+        Ok(())
+    };
+    svg.push_str("<style>");
+    match scheme {
+        Scheme::Dark => rules(svg, false)?,
+        Scheme::Light => rules(svg, true)?,
+        Scheme::Auto => {
+            rules(svg, false)?;
+            svg.push_str("@media (prefers-color-scheme: light){");
+            rules(svg, true)?;
+            svg.push('}');
+        }
+    }
+    svg.push_str("</style>\n");
+    Ok(())
+}
+
+fn paint(c: Rgb) -> String {
+    match roles().iter().find(|(_, dark, _)| *dark == c) {
+        Some((name, _, _)) => format!(r#"class="{name}""#),
+        None => format!(r#"fill="{}""#, rgb(c)),
+    }
+}
+
+// the weekly commit bars in repo mode
+fn spark_height(c: char) -> Option<f64> {
+    let level = "▁▂▃▄▅▆▇".chars().position(|s| s == c)?;
+    Some((level + 1) as f64 / 8.0)
 }
 
 fn block_width(c: char) -> Option<f64> {
@@ -253,7 +336,7 @@ fn apply(style: &mut Style, codes: &[u16]) {
     }
 }
 
-fn rgb((r, g, b): (u8, u8, u8)) -> String {
+fn rgb((r, g, b): Rgb) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
@@ -279,8 +362,12 @@ mod tests {
 
     #[test]
     fn shapes_for_squares_bars_and_dots() {
-        let svg = render("x \x1b[38;2;57;211;83m■\x1b[0m\n● ███▌ 50%", "gh stats me");
-        assert!(svg.contains(r##"fill="#39d353""##));
+        let svg = render(
+            "x \x1b[38;2;57;211;83m■\x1b[0m\n● ███▌ 50%",
+            "gh stats me",
+            Scheme::Auto,
+        );
+        assert!(svg.contains(r#"class="c4""#));
         assert!(svg.contains(r#"rx="2.5""#));
         assert!(svg.contains("<circle cx="));
         // 3.5 cells of bar
@@ -291,14 +378,43 @@ mod tests {
 
     #[test]
     fn escapes_text() {
-        let svg = render("a <b> & c", "t");
+        let svg = render("a <b> & c", "t", Scheme::Dark);
         assert!(svg.contains("a &lt;b&gt; &amp; c"));
     }
 
     #[test]
     fn plain_text_has_no_shapes() {
-        let svg = render("just text", "t");
+        let svg = render("just text", "t", Scheme::Dark);
         assert!(!svg.contains("height=\"10\""));
         assert_eq!(svg.matches("<circle").count(), 3);
+    }
+
+    #[test]
+    fn sparkline_bars() {
+        let svg = render("▁▇", "t", Scheme::Dark);
+        assert!(svg.contains(r#"height="3.5""#));
+        assert!(svg.contains(r#"height="24.5""#));
+        assert!(!svg.contains("▇"));
+    }
+
+    #[test]
+    fn themes() {
+        let dark = render("x", "t", Scheme::Dark);
+        assert!(dark.contains(".bg{fill:#0d1117}"));
+        assert!(!dark.contains("prefers-color-scheme"));
+
+        let light = render("x", "t", Scheme::Light);
+        assert!(light.contains(".bg{fill:#ffffff}"));
+        assert!(light.contains(".c0{fill:#ebedf0}"));
+
+        let auto = render("x", "t", Scheme::Auto);
+        assert!(auto.contains("@media (prefers-color-scheme: light){"));
+        assert!(auto.contains(".bg{fill:#0d1117}") && auto.contains(".bg{fill:#ffffff}"));
+    }
+
+    #[test]
+    fn language_colors_stay_inline() {
+        assert_eq!(paint((0xDE, 0xA5, 0x84)), r##"fill="#dea584""##);
+        assert_eq!(paint(DARK.star), r#"class="star""#);
     }
 }

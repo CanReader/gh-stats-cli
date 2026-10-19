@@ -4,12 +4,14 @@ mod github;
 mod graphql;
 mod heatmap;
 mod render;
+mod repo;
 mod stats;
 mod svg;
 
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::thread;
 
 use anyhow::{Context, Result, bail};
 use clap::{CommandFactory, Parser, ValueEnum};
@@ -20,16 +22,18 @@ use cache::Cache;
 use colors::Palette;
 use github::{Client, User};
 use graphql::Contributions;
+use repo::RepoReport;
 use stats::{Stats, Streaks};
 
 const SVG_COLUMNS: usize = 118;
+const FIRST_YEAR: i32 = 2008;
 
-/// GitHub stats for any user or org, right in your terminal.
+/// GitHub stats for any user, org or repo, right in your terminal.
 #[derive(Parser)]
 #[command(name = "gh-stats", version)]
 struct Args {
-    /// GitHub usernames or orgs (defaults to you, if you're logged in with gh)
-    users: Vec<String>,
+    /// Usernames, orgs or owner/repo (defaults to you, if you're logged in with gh)
+    targets: Vec<String>,
 
     /// How many repos to list under "Top repos" (0 hides them)
     #[arg(short, long, default_value_t = 5)]
@@ -47,6 +51,10 @@ struct Args {
     #[arg(long, value_name = "DATE", value_parser = parse_since)]
     since: Option<String>,
 
+    /// Show contributions for a past year instead of the last 12 months
+    #[arg(long, value_parser = parse_year)]
+    year: Option<i32>,
+
     /// Put two or more users side by side
     #[arg(long, conflicts_with_all = ["json", "md"])]
     compare: bool,
@@ -62,6 +70,10 @@ struct Args {
     /// Save the output as an SVG card instead of printing it (public repos only)
     #[arg(long, value_name = "FILE", conflicts_with_all = ["json", "md"])]
     svg: Option<PathBuf>,
+
+    /// Colors for the SVG card, auto follows the viewer's light or dark mode
+    #[arg(long, value_enum, default_value_t = ThemeArg::Auto)]
+    theme: ThemeArg,
 
     /// Skip the 10 minute cache and ask GitHub again
     #[arg(long)]
@@ -83,6 +95,13 @@ enum ColorMode {
     Never,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum ThemeArg {
+    Auto,
+    Dark,
+    Light,
+}
+
 #[derive(Serialize)]
 pub struct Report {
     pub user: User,
@@ -92,6 +111,20 @@ pub struct Report {
     pub streaks: Option<Streaks>,
     #[serde(skip)]
     pub has_token: bool,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Target {
+    User(Box<Report>),
+    Repo(Box<RepoReport>),
+}
+
+impl Args {
+    // --md and --svg are meant to be shared, so they never show private repos
+    fn shared(&self) -> bool {
+        self.md || self.svg.is_some()
+    }
 }
 
 fn main() -> ExitCode {
@@ -112,32 +145,48 @@ fn main() -> ExitCode {
 
 fn run(args: &Args) -> Result<bool> {
     let client = Client::new(github::find_token(), Cache::new(!args.refresh));
-    let users = if args.users.is_empty() {
+    let names = if args.targets.is_empty() {
         vec![client.me()?]
     } else {
-        args.users.clone()
+        args.targets.clone()
     };
-    if args.compare && users.len() < 2 {
-        bail!("--compare needs at least two users");
+    if args.compare {
+        if names.len() < 2 {
+            bail!("--compare needs at least two users");
+        }
+        if names.iter().any(|n| repo::parse(n).is_some()) {
+            bail!("--compare only works with users and orgs");
+        }
     }
 
-    let mut reports = Vec::new();
+    let results: Vec<Result<Target>> = thread::scope(|s| {
+        let handles: Vec<_> = names
+            .iter()
+            .map(|name| s.spawn(|| load(&client, name, args)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("thread panicked"))
+            .collect()
+    });
+
+    let mut targets = Vec::new();
     let mut all_ok = true;
-    for login in &users {
-        match load(&client, login, args) {
-            Ok(r) => reports.push(r),
+    for result in results {
+        match result {
+            Ok(t) => targets.push(t),
             Err(e) => {
                 eprintln!("gh-stats: {e:#}");
                 all_ok = false;
             }
         }
     }
-    if reports.is_empty() {
+    if targets.is_empty() {
         return Ok(false);
     }
 
     if args.json {
-        let json = match reports.as_slice() {
+        let json = match targets.as_slice() {
             [one] => serde_json::to_string_pretty(one)?,
             many => serde_json::to_string_pretty(many)?,
         };
@@ -145,32 +194,57 @@ fn run(args: &Args) -> Result<bool> {
         return Ok(all_ok);
     }
     if args.md {
-        let blocks: Vec<String> = reports.iter().map(render::markdown).collect();
+        let blocks: Vec<String> = targets
+            .iter()
+            .map(|t| match t {
+                Target::User(r) => render::markdown(r),
+                Target::Repo(r) => repo::markdown(r),
+            })
+            .collect();
         print!("{}", blocks.join("\n"));
         return Ok(all_ok);
     }
 
+    // the svg swaps in the light colors itself, so it always gets the dark ones
     let (palette, width) = match &args.svg {
-        Some(_) => (Palette::TrueColor, SVG_COLUMNS),
-        None => (palette(args.color), terminal_width()),
+        Some(_) => (Palette::truecolor(colors::DARK), SVG_COLUMNS),
+        None => (palette(args.color, args.theme), terminal_width()),
     };
     let output = if args.compare {
+        let reports: Vec<Report> = targets
+            .into_iter()
+            .filter_map(|t| match t {
+                Target::User(r) => Some(*r),
+                Target::Repo(_) => None,
+            })
+            .collect();
         render::compare(&reports, palette)
     } else {
-        let blocks: Vec<String> = reports
+        let blocks: Vec<String> = targets
             .iter()
-            .map(|r| render::text(r, palette, width))
+            .map(|t| match t {
+                Target::User(r) => render::text(r, palette, width),
+                Target::Repo(r) => repo::text(r, palette, width),
+            })
             .collect();
         blocks.join("\n")
     };
 
     match &args.svg {
         Some(path) => {
-            let mut title = format!("gh stats {}", users.join(" "));
+            let mut title = format!("gh stats {}", names.join(" "));
             if args.compare {
                 title += " --compare";
             }
-            std::fs::write(path, svg::render(&output, &title))
+            if let Some(year) = args.year {
+                title += &format!(" --year {year}");
+            }
+            let scheme = match args.theme {
+                ThemeArg::Auto => svg::Scheme::Auto,
+                ThemeArg::Dark => svg::Scheme::Dark,
+                ThemeArg::Light => svg::Scheme::Light,
+            };
+            std::fs::write(path, svg::render(&output, &title, scheme))
                 .with_context(|| format!("could not write {}", path.display()))?;
             eprintln!("saved {}", path.display());
         }
@@ -179,38 +253,63 @@ fn run(args: &Args) -> Result<bool> {
     Ok(all_ok)
 }
 
-fn load(client: &Client, login: &str, args: &Args) -> Result<Report> {
-    let user = client.user(login)?;
-    // --md and --svg are meant to be shared, so they never show private repos
-    let with_private = !(args.public || args.md || args.svg.is_some());
-    let since = args.since.as_deref().unwrap_or("");
+fn load(client: &Client, name: &str, args: &Args) -> Result<Target> {
+    if let Some((owner, repo_name)) = repo::parse(name) {
+        let report = repo::load(client, owner, repo_name)?;
+        if args.shared() {
+            repo::ensure_shareable(&report)?;
+        }
+        return Ok(Target::Repo(Box::new(report)));
+    }
+    load_user(client, name, args).map(|r| Target::User(Box::new(r)))
+}
 
-    let mut repos = client.repos(&user, with_private)?;
+fn load_user(client: &Client, login: &str, args: &Args) -> Result<Report> {
+    let user = client.user(login)?;
+    let with_private = !(args.public || args.shared());
+    let since = args.since.as_deref().unwrap_or("");
+    let graphql = client.has_token();
+
+    // the three parts don't depend on each other, so ask for them at once
+    let (repos, sizes, contributions) = thread::scope(|s| {
+        let sizes = s.spawn(|| {
+            graphql.then(|| graphql::languages(client, &user.login, with_private, args.forks))
+        });
+        let contributions = s.spawn(|| {
+            (graphql && !user.is_org())
+                .then(|| graphql::contributions(client, &user.login, args.year))
+        });
+        let repos = client.repos(&user, with_private);
+        (
+            repos,
+            sizes.join().expect("thread panicked"),
+            contributions.join().expect("thread panicked"),
+        )
+    });
+
+    let mut repos = repos?;
     repos
         .retain(|r| (with_private || !r.private) && r.created_at.as_deref().unwrap_or("") >= since);
 
-    let mut sizes = None;
-    let mut contributions = None;
-    if client.has_token() {
-        match graphql::languages(client, &user.login, with_private, args.forks) {
-            Ok(mut s) => {
+    // without code sizes or contributions the report still works, just shows less
+    let sizes = sizes.and_then(|s| {
+        s.inspect_err(|e| eprintln!("gh-stats: no code sizes for {}: {e:#}", user.login))
+            .ok()
+            .map(|mut s| {
                 s.retain(|r| r.created_at.as_str() >= since);
-                sizes = Some(s);
-            }
-            Err(e) => eprintln!("gh-stats: no code sizes for {}: {e:#}", user.login),
-        }
-        if !user.is_org() {
-            match graphql::contributions(client, &user.login) {
-                Ok(mut c) => {
-                    if !with_private {
-                        c.private = 0;
-                    }
-                    contributions = Some(c);
+                s
+            })
+    });
+    let contributions = contributions.and_then(|c| {
+        c.inspect_err(|e| eprintln!("gh-stats: no contributions for {}: {e:#}", user.login))
+            .ok()
+            .map(|mut c| {
+                if !with_private {
+                    c.private = 0;
                 }
-                Err(e) => eprintln!("gh-stats: no contributions for {}: {e:#}", user.login),
-            }
-        }
-    }
+                c
+            })
+    });
 
     let stats = stats::collect(
         &repos,
@@ -244,18 +343,31 @@ fn parse_since(s: &str) -> Result<String, String> {
     }
 }
 
-fn palette(mode: ColorMode) -> Palette {
+fn parse_year(s: &str) -> Result<i32, String> {
+    let this_year = 1970 + (github::now_secs() / 31_556_952) as i32;
+    match s.parse::<i32>() {
+        Ok(y) if (FIRST_YEAR..=this_year).contains(&y) => Ok(y),
+        _ => Err(format!("use a year between {FIRST_YEAR} and {this_year}")),
+    }
+}
+
+fn palette(mode: ColorMode, theme: ThemeArg) -> Palette {
     let on = match mode {
         ColorMode::Always => true,
         ColorMode::Never => false,
         ColorMode::Auto => io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
     };
+    // a terminal can't tell us its background, so auto means dark here
+    let theme = match theme {
+        ThemeArg::Light => colors::LIGHT,
+        ThemeArg::Auto | ThemeArg::Dark => colors::DARK,
+    };
     let truecolor =
         std::env::var("COLORTERM").is_ok_and(|v| v.contains("truecolor") || v.contains("24bit"));
     match (on, truecolor) {
-        (false, _) => Palette::None,
-        (true, true) => Palette::TrueColor,
-        (true, false) => Palette::Ansi256,
+        (false, _) => Palette::plain(),
+        (true, true) => Palette::truecolor(theme),
+        (true, false) => Palette::ansi256(theme),
     }
 }
 
@@ -282,6 +394,15 @@ mod tests {
     }
 
     #[test]
+    fn years() {
+        assert_eq!(parse_year("2024"), Ok(2024));
+        assert_eq!(parse_year("2008"), Ok(2008));
+        for bad in ["2007", "3000", "24", "last"] {
+            assert!(parse_year(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn cli_is_valid() {
         Args::command().debug_assert();
     }
@@ -290,5 +411,13 @@ mod tests {
     fn compare_and_json_conflict() {
         let res = Args::try_parse_from(["gh-stats", "a", "b", "--compare", "--json"]);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn shared_outputs() {
+        let md = Args::try_parse_from(["gh-stats", "a", "--md"]).unwrap();
+        let svg = Args::try_parse_from(["gh-stats", "a", "--svg", "x.svg"]).unwrap();
+        let plain = Args::try_parse_from(["gh-stats", "a"]).unwrap();
+        assert!(md.shared() && svg.shared() && !plain.shared());
     }
 }
