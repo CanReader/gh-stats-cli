@@ -1,4 +1,4 @@
-/// Same colors GitHub uses for languages (from github-linguist).
+// same colors GitHub uses, from github-linguist
 const LANGUAGES: &[(&str, u32)] = &[
     ("Assembly", 0x6E4C13),
     ("C", 0x555555),
@@ -54,6 +54,15 @@ pub fn language(name: &str) -> (u8, u8, u8) {
     ((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+pub fn hex(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.strip_prefix('#')?;
+    if s.len() != 6 {
+        return None;
+    }
+    let n = u32::from_str_radix(s, 16).ok()?;
+    Some(((n >> 16) as u8, (n >> 8) as u8, n as u8))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Palette {
     None,
@@ -100,6 +109,14 @@ mod tests {
         assert_eq!(language("Rust"), (0xDE, 0xA5, 0x84));
         assert_eq!(language("rust"), language("Rust"));
         assert_eq!(language("SomethingNew"), (0x8B, 0x94, 0x9E));
+    }
+
+    #[test]
+    fn hex_colors() {
+        assert_eq!(hex("#dea584"), Some((0xDE, 0xA5, 0x84)));
+        assert_eq!(hex("dea584"), None);
+        assert_eq!(hex("#fff"), None);
+        assert_eq!(hex("#zzzzzz"), None);
     }
 
     #[test]
