@@ -1,0 +1,57 @@
+name: gh-stats card
+description: Keep an SVG card with GitHub stats, a contribution heatmap and languages up to date
+author: Canberk Pitirli
+branding:
+  icon: bar-chart-2
+  color: green
+
+inputs:
+  target:
+    description: User, org or owner/repo to show
+    default: ${{ github.repository_owner }}
+  path:
+    description: Where to save the SVG
+    default: gh-stats.svg
+  options:
+    description: Extra gh-stats flags, like "--top 3 --theme light"
+    default: ""
+  token:
+    description: Token for the GitHub API
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download gh-stats
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) asset=gh-stats-linux-amd64 ;;
+          Linux-ARM64) asset=gh-stats-linux-arm64 ;;
+          macOS-X64) asset=gh-stats-darwin-amd64 ;;
+          macOS-ARM64) asset=gh-stats-darwin-arm64 ;;
+          Windows-X64) asset=gh-stats-windows-amd64.exe ;;
+          *) echo "no gh-stats build for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+        esac
+        # same release as the action version, or the latest one when used from a branch
+        tag=()
+        if [[ "$ACTION_REF" =~ ^v[0-9] ]]; then tag=("$ACTION_REF"); fi
+        bin="$RUNNER_TEMP/$asset"
+        gh release download "${tag[@]}" --repo CanReader/gh-stats --pattern "$asset" --output "$bin" --clobber
+        chmod +x "$bin"
+        echo "GH_STATS_BIN=$bin" >> "$GITHUB_ENV"
+
+    - name: Make the card
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        TARGET: ${{ inputs.target }}
+        CARD: ${{ inputs.path }}
+        OPTIONS: ${{ inputs.options }}
+      run: |
+        mkdir -p "$(dirname "$CARD")"
+        read -ra extra <<< "$OPTIONS"
+        "$GH_STATS_BIN" "$TARGET" --svg "$CARD" --refresh "${extra[@]}"

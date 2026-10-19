@@ -1,0 +1,19 @@
+name: action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  card:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          target: torvalds
+          path: out/card.svg
+          options: --top 3
+      - run: grep -q "<svg" out/card.svg && grep -q "torvalds" out/card.svg
