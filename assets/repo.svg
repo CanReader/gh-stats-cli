@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="687" height="802" viewBox="0 0 687 802">
+<style>.fg{fill:#c9d1d9}.dim{fill:#8b949e}.accent{fill:#58a6ff}.star{fill:#e3b341}.green{fill:#3fb950}.c0{fill:#2d333b}.c1{fill:#0e4429}.c2{fill:#006d32}.c3{fill:#26a641}.c4{fill:#39d353}.bg{fill:#0d1117}.bg{stroke:#30363d}@media (prefers-color-scheme: light){.fg{fill:#1f2328}.dim{fill:#59636e}.accent{fill:#0969da}.star{fill:#9a6700}.green{fill:#1a7f37}.c0{fill:#ebedf0}.c1{fill:#9be9a8}.c2{fill:#40c463}.c3{fill:#30a14e}.c4{fill:#216e39}.bg{fill:#ffffff}.bg{stroke:#d0d7de}}</style>
+<rect class="bg" x="0.5" y="0.5" width="686" height="801" rx="12"/>
+<circle cx="24" cy="22" r="6" fill="#ff5f57"/>
+<circle cx="44" cy="22" r="6" fill="#febc2e"/>
+<circle cx="64" cy="22" r="6" fill="#28c840"/>
+<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" xml:space="preserve">
+<text x="24" y="48"><tspan class="green" font-weight="600">$ </tspan><tspan class="fg">gh stats rust-lang/rust</tspan></text>
+<text y="78.9"><tspan x="40.8" class="accent" font-weight="600">rust-lang/rust</tspan></text>
+<text y="98.9"><tspan x="24.0" class="fg">  Empowering everyone to build reliable and efficient software.</tspan></text>
+<text y="118.9"><tspan x="40.8" class="dim">Rust, Apache-2.0, created 2010-06-16, last push 2026-10-19</tspan></text>
+<text y="138.9"><tspan x="40.8" class="dim">topics: compiler, language, rust</tspan></text>
+<text y="178.9"><tspan x="40.8" class="star" font-weight="600">120,596</tspan><tspan x="99.6" class="fg"> stars   </tspan><tspan x="175.2" class="fg" font-weight="600">19,079</tspan><tspan x="225.6" class="fg"> forks   </tspan><tspan x="301.2" class="fg" font-weight="600">1,560</tspan><tspan x="343.2" class="fg"> watching   </tspan><tspan x="444.0" class="fg" font-weight="600">12,602</tspan><tspan x="494.4" class="fg"> open issues and PRs</tspan></text>
+<text y="218.9"><tspan x="40.8" class="fg" font-weight="600">Commits</tspan></text>
+<text y="238.9"><tspan x="40.8" class="dim">33,018 in the last year, one bar per week</tspan></text>
+<rect x="41.8" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="50.2" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="58.6" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="67.0" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="75.4" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="83.8" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="92.2" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="100.6" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="109.0" y="264.5" width="6.4" height="10.5" rx="1" class="green"/>
+<rect x="117.4" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="125.8" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="134.2" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="142.6" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="151.0" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="159.4" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="167.8" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="176.2" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="184.6" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="193.0" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="201.4" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="209.8" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="218.2" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="226.6" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="235.0" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="243.4" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="251.8" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="260.2" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="268.6" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="277.0" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="285.4" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="293.8" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="302.2" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="310.6" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="319.0" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="327.4" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="335.8" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="344.2" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="352.6" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="361.0" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="369.4" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="377.8" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="386.2" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="394.6" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="403.0" y="250.5" width="6.4" height="24.5" rx="1" class="green"/>
+<rect x="411.4" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="419.8" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="428.2" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="436.6" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="445.0" y="257.5" width="6.4" height="17.5" rx="1" class="green"/>
+<rect x="453.4" y="254.0" width="6.4" height="21.0" rx="1" class="green"/>
+<rect x="461.8" y="261.0" width="6.4" height="14.0" rx="1" class="green"/>
+<rect x="470.2" y="271.5" width="6.4" height="3.5" rx="1" class="green"/>
+<text y="312.9"><tspan x="40.8" class="fg" font-weight="600">Languages</tspan><tspan x="133.2" class="dim">by code size</tspan></text>
+<circle cx="45.0" cy="328.0" r="4.5" fill="#dea584"/>
+<rect x="158.4" y="323.0" width="201.6" height="10" rx="3" fill="#dea584"/>
+<text y="332.9"><tspan x="49.2" class="fg"> Rust        </tspan><tspan x="360.0" class="fg">   90.5%  </tspan><tspan x="444.0" class="dim">142.5 MB</tspan></text>
+<circle cx="45.0" cy="348.0" r="4.5" fill="#e34c26"/>
+<rect x="158.4" y="343.0" width="13.7" height="10" rx="3" fill="#e34c26"/>
+<text y="352.9"><tspan x="49.2" class="fg"> HTML        </tspan><tspan x="360.0" class="fg">    6.3%  </tspan><tspan x="444.0" class="dim">10.0 MB</tspan></text>
+<circle cx="45.0" cy="368.0" r="4.5" fill="#89e051"/>
+<rect x="158.4" y="363.0" width="2.1" height="10" rx="3" fill="#89e051"/>
+<text y="372.9"><tspan x="49.2" class="fg"> Shell       </tspan><tspan x="360.0" class="fg">    0.8%  </tspan><tspan x="444.0" class="dim">1.2 MB</tspan></text>
+<circle cx="45.0" cy="388.0" r="4.5" fill="#555555"/>
+<rect x="158.4" y="383.0" width="1.1" height="10" rx="3" fill="#555555"/>
+<text y="392.9"><tspan x="49.2" class="fg"> C           </tspan><tspan x="360.0" class="fg">    0.7%  </tspan><tspan x="444.0" class="dim">1.2 MB</tspan></text>
+<circle cx="45.0" cy="408.0" r="4.5" fill="#f1e05a"/>
+<rect x="158.4" y="403.0" width="1.1" height="10" rx="3" fill="#f1e05a"/>
+<text y="412.9"><tspan x="49.2" class="fg"> JavaScript  </tspan><tspan x="360.0" class="fg">    0.5%  </tspan><tspan x="444.0" class="dim">790.0 KB</tspan></text>
+<circle cx="45.0" cy="428.0" r="4.5" fill="#3572a5"/>
+<rect x="158.4" y="423.0" width="1.1" height="10" rx="3" fill="#3572a5"/>
+<text y="432.9"><tspan x="49.2" class="fg"> Python      </tspan><tspan x="360.0" class="fg">    0.4%  </tspan><tspan x="444.0" class="dim">585.8 KB</tspan></text>
+<circle cx="45.0" cy="448.0" r="4.5" fill="#012456"/>
+<rect x="158.4" y="443.0" width="1.1" height="10" rx="3" fill="#012456"/>
+<text y="452.9"><tspan x="49.2" class="fg"> PowerShell  </tspan><tspan x="360.0" class="fg">    0.2%  </tspan><tspan x="444.0" class="dim">397.1 KB</tspan></text>
+<circle cx="45.0" cy="468.0" r="4.5" fill="#3178c6"/>
+<rect x="158.4" y="463.0" width="1.1" height="10" rx="3" fill="#3178c6"/>
+<text y="472.9"><tspan x="49.2" class="fg"> TypeScript  </tspan><tspan x="360.0" class="fg">    0.2%  </tspan><tspan x="444.0" class="dim">273.8 KB</tspan></text>
+<text y="512.9"><tspan x="40.8" class="fg" font-weight="600">Top contributors</tspan></text>
+<rect x="175.2" y="523.0" width="201.6" height="10" rx="3" class="accent"/>
+<text y="532.9"><tspan x="24.0" class="fg">  bors            </tspan><tspan x="393.6" class="dim">48,851 commits</tspan></text>
+<rect x="175.2" y="543.0" width="54.6" height="10" rx="3" class="accent"/>
+<text y="552.9"><tspan x="24.0" class="fg">  matthiaskrgr    </tspan><tspan x="393.6" class="dim">13,334 commits</tspan></text>
+<rect x="175.2" y="563.0" width="44.1" height="10" rx="3" class="accent"/>
+<text y="572.9"><tspan x="24.0" class="fg">  RalfJung        </tspan><tspan x="393.6" class="dim">10,726 commits</tspan></text>
+<rect x="175.2" y="583.0" width="34.6" height="10" rx="3" class="accent"/>
+<text y="592.9"><tspan x="24.0" class="fg">  GuillaumeGomez  </tspan><tspan x="393.6" class="dim">8,462 commits</tspan></text>
+<rect x="175.2" y="603.0" width="26.3" height="10" rx="3" class="accent"/>
+<text y="612.9"><tspan x="24.0" class="fg">  oli-obk         </tspan><tspan x="393.6" class="dim">6,325 commits</tspan></text>
+<rect x="175.2" y="623.0" width="24.2" height="10" rx="3" class="accent"/>
+<text y="632.9"><tspan x="24.0" class="fg">  bjorn3          </tspan><tspan x="393.6" class="dim">5,886 commits</tspan></text>
+<rect x="175.2" y="643.0" width="24.2" height="10" rx="3" class="accent"/>
+<text y="652.9"><tspan x="24.0" class="fg">  alexcrichton    </tspan><tspan x="393.6" class="dim">5,726 commits</tspan></text>
+<rect x="175.2" y="663.0" width="23.1" height="10" rx="3" class="accent"/>
+<text y="672.9"><tspan x="24.0" class="fg">  matklad         </tspan><tspan x="393.6" class="dim">5,666 commits</tspan></text>
+<text y="712.9"><tspan x="40.8" class="fg" font-weight="600">Latest releases</tspan></text>
+<text y="732.9"><tspan x="24.0" class="fg">  1.99.1  </tspan><tspan x="108.0" class="dim">2026-10-16</tspan></text>
+<text y="752.9"><tspan x="24.0" class="fg">  1.99.0  </tspan><tspan x="108.0" class="dim">2026-10-01</tspan></text>
+<text y="772.9"><tspan x="24.0" class="fg">  1.98.1  </tspan><tspan x="108.0" class="dim">2026-09-03</tspan></text>
+</g>
+</svg>
